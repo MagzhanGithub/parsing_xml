@@ -1,0 +1,566 @@
+create or replace procedure P_ESF_BUFFER_INS(p_invoice_id in number default null, p_registrationnumber in varchar2 default null, p_inputdate in varchar2,
+                      p_lastupdatedate in varchar2, p_invoicestatus in varchar2 default null, 
+                      p_signature_type in varchar2, p_invoice_body_xml in xmltype, 
+                      p_signaturevalid in varchar2, p_deliveryDate in varchar2 default null,
+                      p_cancelReason in varchar2 default null, p_kogd in varchar2 default null) is
+  v_stmt varchar2(300 char) := 'insert into cds.esf_buffer_temp (invoice_id, registrationnumber, inputdate, lastupdatedate, 
+          invoicestatus, signature_type, invoice_body_xml, signaturevalid,deliverydate,cancelreason,kogd ) 
+          values (:1, :2,:3,:4,:5,:6,:7,:8,:9,:10,:11)';
+begin
+	execute immediate v_stmt using p_invoice_id,p_registrationnumber,p_inputdate,p_lastupdatedate,
+  p_invoicestatus,p_signature_type,p_invoice_body_xml,p_signaturevalid,p_deliveryDate,p_cancelReason,p_kogd;
+  
+  EXCEPTION
+    WHEN DUP_VAL_ON_INDEX THEN
+        null;
+end;
+
+create or replace procedure P_ESF_BUFFER_INS_ERROR(p_createdon in timestamp default null, p_errm in varchar2 default null, p_invoice_xml in clob) is
+  v_stmt varchar2(300 char) := 'insert into cds.esf_buffer_temp_e (createdon, errm, invoice_xml) 
+          values (:1, :2,:3)';
+begin
+	execute immediate v_stmt using p_createdon,p_errm,p_invoice_xml;
+end;
+
+
+create or replace package     SYNC_INVOICE_NEW is
+	procedure SYNC_TARGET;
+end SYNC_INVOICE_NEW;
+
+create or replace package body     SYNC_INVOICE_NEW is
+
+	procedure SYNC_INVOICE (p_rowid in varchar2, p_invoice_id in number, p_invoice_date out date) is
+		l_inputdate timestamp(6);
+	begin
+		insert into ods.invoice#0(INVOICE_ID,
+			INVOICE_NUMBER,
+			INVOICE_DATE,
+			TURNOVER_DATE,
+			INVOICE_TYPE,
+			ADDINF,
+			STATUS,
+			REGISTRATION_NUMBER,
+			LAST_UPDATE_DATE,
+			PARENT_REG_NUMBER,
+			PARENT_DATE,
+			CONSIGNOR_IIN_BIN,
+			CONSIGNOR_NAME,
+			CONSIGNOR_ADDRESS,
+			CONSIGNEE_IIN_BIN,
+			CONSIGNEE_NAME,
+			CONSIGNEE_ADDRESS,
+			CONSIGNEE_COUNTRY_CODE,
+			DELIVERYTERM_CONTRACT_NUM,
+			DELIVERYTERM_CONTRACT_DATE,
+			DELIVERYTERM_TERM,
+			--DELIVERYTERM_EXERCISE_WAY,
+			DELIVERYTERM_WARRANT,
+			DELIVERYTERM_WARRANT_DATE,
+			DELIVERYTERM_DESTINATION,
+			CURRENCY_CODE,
+			CURRENCY_RATE,
+			TOTALPRICEWITHOUTTAX,
+			TOTALEXCISEAMOUNT,
+			TOTALTURNOVERSIZE,
+			TOTALNDSAMOUNT,
+			TOTALPRICEWITHTAX,
+			PUBOFFICE_OFFICE_IIK,
+			PUBOFFICE_OFFICE_PRODCODE,
+			PUBOFFICE_OFFICE_PAYPURPOSE,
+			PUBOFFICE_OFFICE_BIK,
+			SIGNATURE_TYPE,
+			SIGNATURE_FULLNAME,
+			INPUTDATE,
+			SIGNATUREVALID,
+			DATE_PAPER,
+			HAS_CONTRACT,
+			DELIVERY_DATE,
+			CANCEL_REASON,
+			KOGD,
+			CREATEDON)
+			SELECT 
+			  ebt.invoice_id,
+			  invoice_number,
+			  to_date(xt.invoice_date,'dd.mm.yyyy') invoice_date,
+				to_date(xt.turnover_date,'dd.mm.yyyy') turnover_date,
+			  invoice_type,
+			  ADDINF,
+			  INVOICESTATUS status,
+			  REGISTRATIONNUMBER REGISTRATION_NUMBER,
+			  to_timestamp_tz(LASTUPDATEDATE,'YYYY-MM-DD"T"HH24:MI:SS.FFTZH:TZM') LAST_UPDATE_DATE,
+			  PARENT_REG_NUMBER,
+			  to_date(PARENT_DATE,'dd.mm.yyyy') PARENT_DATE,
+			  CONSIGNOR_IIN_BIN,
+			  CONSIGNOR_NAME,
+			  CONSIGNOR_ADDRESS,
+			  CONSIGNEE_IIN_BIN,
+			  CONSIGNEE_NAME,
+			  CONSIGNEE_ADDRESS,
+			  CONSIGNEE_COUNTRY_CODE,
+			  DELIVERYTERM_CONTRACT_NUM,
+			  to_date(DELIVERYTERM_CONTRACT_DATE,'dd.mm.yyyy') DELIVERYTERM_CONTRACT_DATE,
+			  DELIVERYTERM_TERM,
+			  DELIVERYTERM_WARRANT,
+			  to_date(DELIVERYTERM_WARRANT_DATE,'dd.mm.yyyy') DELIVERYTERM_WARRANT_DATE,
+			  DELIVERYTERM_DESTINATION,
+			  nvl(CURRENCY_CODE, 'KZT') CURRENCY_CODE,
+			  to_number(CURRENCY_RATE) CURRENCY_RATE,
+			  to_number(TOTALPRICEWITHOUTTAX) TOTALPRICEWITHOUTTAX,
+			  to_number(TOTALEXCISEAMOUNT) TOTALEXCISEAMOUNT,
+			  to_number(TOTALTURNOVERSIZE) TOTALTURNOVERSIZE,
+			  to_number(TOTALNDSAMOUNT) TOTALNDSAMOUNT,
+			  to_number(TOTALPRICEWITHTAX) TOTALPRICEWITHTAX,
+			  PUBOFFICE_OFFICE_IIK,
+			  PUBOFFICE_OFFICE_PRODCODE,
+			  PUBOFFICE_OFFICE_PAYPURPOSE,
+			  PUBOFFICE_OFFICE_BIK,
+			  SIGNATURE_TYPE,
+			  SIGNATURE_FULLNAME,
+			  to_timestamp_tz(INPUTDATE,'YYYY-MM-DD"T"HH24:MI:SS.FFTZH:TZM') INPUTDATE,
+              case when SIGNATUREVALID ='true' then 1 else 0 end SIGNATUREVALID,
+		      to_date(DATE_PAPER,'dd.mm.yyyy') DATE_PAPER,
+			  HAS_CONTRACT,
+			  to_timestamp_tz(ebt.DELIVERYDATE,'YYYY-MM-DD"T"HH24:MI:SS.FFTZH:TZM') DELIVERY_DATE,
+			  ebt.CANCELREASON,
+			  ebt.KOGD,
+			  systimestamp
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					invoice_number varchar2(100) PATH '/v2:invoice/num',
+					invoice_date varchar2(20) PATH '/v2:invoice/date',
+					invoice_type varchar2(500) PATH '/v2:invoice/invoiceType',
+					turnover_Date varchar2(20) PATH '/v2:invoice/turnoverDate',
+					addInf varchar2(4000) PATH '/v2:invoice/addInf',
+					PARENT_REG_NUMBER varchar2(50) PATH '/v2:invoice/relatedInvoice/registrationNumber',
+					PARENT_DATE varchar2(20) PATH '/v2:invoice/relatedInvoice/date',
+					CONSIGNOR_IIN_BIN varchar2(24) PATH '/v2:invoice/consignor/tin',
+					CONSIGNOR_NAME varchar2(4000) PATH '/v2:invoice/consignor/name',
+					CONSIGNOR_ADDRESS varchar2(4000) PATH '/v2:invoice/consignor/address',
+					CONSIGNEE_IIN_BIN varchar2(24) PATH '/v2:invoice/consignee/tin',
+					CONSIGNEE_NAME varchar2(4000) PATH '/v2:invoice/consignee/name',
+					CONSIGNEE_ADDRESS varchar2(4000) PATH '/v2:invoice/consignee/address',
+					CONSIGNEE_COUNTRY_CODE  varchar2(10) PATH '/v2:invoice/consignee/countryCode',
+					DELIVERYTERM_CONTRACT_NUM varchar2(500) PATH '/v2:invoice/deliveryTerm/contractNum',
+					DELIVERYTERM_CONTRACT_DATE varchar2(20) PATH '/v2:invoice/deliveryTerm/contractDate',
+					DELIVERYTERM_TERM varchar2(500) PATH '/v2:invoice/deliveryTerm/term',
+				   -- DELIVERYTERM_EXERCISE_WAY varchar2(500) PATH '/v2:invoice/deliveryTerm/contractNum',
+					DELIVERYTERM_WARRANT varchar2(100) PATH '/v2:invoice/deliveryTerm/warrant',
+					DELIVERYTERM_WARRANT_DATE varchar2(20) PATH '/v2:invoice/deliveryTerm/warrantDate',
+					DELIVERYTERM_DESTINATION varchar2(4000) PATH '/v2:invoice/deliveryTerm/destination',
+					CURRENCY_CODE varchar2(50) PATH '/v2:invoice/productSet/currencyCode',
+					CURRENCY_RATE varchar2(50) PATH '/v2:invoice/productSet/currencyRate',
+					TOTALPRICEWITHOUTTAX varchar2(50) PATH '/v2:invoice/productSet/totalPriceWithoutTax',
+					TOTALEXCISEAMOUNT varchar2(50) PATH '/v2:invoice/productSet/totalExciseAmount',
+					TOTALTURNOVERSIZE varchar2(50) PATH '/v2:invoice/productSet/totalTurnoverSize',
+					TOTALNDSAMOUNT varchar2(50) PATH '/v2:invoice/productSet/totalNdsAmount',
+					TOTALPRICEWITHTAX varchar2(50) PATH '/v2:invoice/productSet/totalPriceWithTax',
+					PUBOFFICE_OFFICE_IIK varchar2(50) PATH '/v2:invoice/publicOffice/iik',
+					PUBOFFICE_OFFICE_PRODCODE varchar2(50) PATH '/v2:invoice/publicOffice/productCode',
+					PUBOFFICE_OFFICE_PAYPURPOSE varchar2(4000) PATH '/v2:invoice/publicOffice/payPurpose',
+					PUBOFFICE_OFFICE_BIK varchar2(50) PATH '/v2:invoice/publicOffice/bik',
+					SIGNATURE_FULLNAME varchar2(50) PATH '/v2:invoice/operatorFullname',
+					DATE_PAPER varchar2(10)  PATH '/v2:invoice/datePaper',
+					HAS_CONTRACT varchar2(10)  PATH '/v2:invoice/deliveryTerm/hasContract')        
+				  xt
+				  where ebt.rowid = p_rowid;
+
+		select invoice_date, inputdate into p_invoice_date, l_inputdate from ods.invoice#0 where invoice_id = P_INVOICE_ID;
+
+	end SYNC_INVOICE;
+
+	procedure SYNC_PARTICIPANT(p_rowid in varchar2, p_invoice_id in number, p_invoice_date in date) is
+		v_max_part_id number;
+	begin
+
+		-- Customers
+		insert into ods.invoice_participant#0(PARTICIPANT_ID,
+			INVOICE_ID,
+			TYPE_ID,
+			IIN_BIN,
+			NAME,
+			ADDRESS,
+			TRAILERS,
+			COUNTRY_CODE,
+			reorganizedTin,
+			SHARE_PARTICIPATION,
+			INVOICE_DATE)
+			select 
+			  ods.SEQ_ESF_NEW_PART.nextval Participant_id,
+			  ebt.invoice_id,
+			  1 TYPE_ID,
+			  xt.IIN_BIN,
+			  xt.NAME,
+			  xt.ADDRESS,
+			  xt.TRAILERS,
+			  xt.COUNTRY_CODE,
+			  xt.reorganizedTin,
+			  to_number(xt.SHARE_PARTICIPATION) SHARE_PARTICIPATION,
+			  P_INVOICE_DATE
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/customers/customer'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					iin_bin varchar2(24) PATH '/customer/tin',
+					NAME varchar2(4000) PATH '/customer/name',
+					ADDRESS varchar2(4000) PATH '/customer/address',
+					TRAILERS varchar2(4000) PATH '/customer/trailer',
+					COUNTRY_CODE varchar2(10) PATH '/customer/countryCode',
+					reorganizedTin varchar2(10) PATH '/customer/reorganizedTin',
+					SHARE_PARTICIPATION varchar2(10) PATH '/customer/shareParticipation') xt
+					where ebt.rowid = p_rowid;
+
+		-- customer status
+		/*insert into ods.invoice_participant_status#0(INVOICE_PARTICIPANT_STATUS_ID,INVOICE_PARTICIPANT_ID,STATUS)
+			select
+			  ODS.SEQ_ESF_NEW_PART_ST.NEXTVAL INVOICE_PARTICIPANT_STATUS_ID,
+			  v_max_part_id INVOICE_PARTICIPANT_ID,
+			  xt.STATUS
+			from cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/customers/customer/statuses/status'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					status varchar2(24) PATH '/status') xt
+					where ebt.invoice_id = P_INVOICE_ID;*/
+
+		insert into ods.invoice_participant_status#0(INVOICE_PARTICIPANT_STATUS_ID,INVOICE_PARTICIPANT_ID,STATUS)
+			select
+			  ODS.SEQ_ESF_NEW_PART_ST.NEXTVAL INVOICE_PARTICIPANT_STATUS_ID,
+				participant_id,
+			  STATUS
+			from
+			(select
+				rownum rnum,
+				xt.STATUS
+			from cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/customers/customer/statuses/status'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					status varchar2(50) PATH '/status') xt
+					where ebt.rowid = p_rowid) t
+			  join (select row_number() over(ORDER BY participant_id) rnum, participant_id from ods.invoice_participant#0 where invoice_date = P_INVOICE_DATE and invoice_id = P_INVOICE_ID and type_id =1) p
+			  on t.rnum = p.rnum;
+
+		-- Sellers
+
+		insert into ods.invoice_participant#0(PARTICIPANT_ID,
+			INVOICE_ID,
+			TYPE_ID,
+			IIN_BIN,
+			NAME,
+			ADDRESS,
+			CERTIFICATE_SERIES,
+			CERTIFICATE_NUMBER,
+			TRAILERS,
+			KBE,
+			IIK,
+			BIK,
+			BANK_NAME,
+			reorganizedTin,
+			SHARE_PARTICIPATION,
+			INVOICE_DATE)
+			select 
+			  ods.SEQ_ESF_NEW_PART.nextval Participant_id,
+			  ebt.invoice_id,
+			  2 TYPE_ID,
+			  xt.IIN_BIN,
+			  xt.NAME,
+			  xt.ADDRESS,
+			  xt.CERTIFICATE_SERIES,
+			  xt.CERTIFICATE_NUMBER,
+			  xt.TRAILERS,
+			  xt.KBE,
+			  xt.IIK,
+			  xt.BIK,
+			  xt.BANK_NAME,
+			  xt.reorganizedTin,
+			  to_number(xt.SHARE_PARTICIPATION) SHARE_PARTICIPATION,
+			  P_INVOICE_DATE
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/sellers/seller'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					iin_bin varchar2(24) PATH '/seller/tin',
+					NAME varchar2(4000) PATH '/seller/name',
+					ADDRESS varchar2(4000) PATH '/seller/address',
+					CERTIFICATE_SERIES varchar2(50) PATH '/seller/certificateSeries',
+					CERTIFICATE_NUMBER varchar2(50) PATH '/seller/certificateNum',
+					TRAILERS varchar2(4000) PATH '/seller/trailer',
+					KBE varchar2(50) PATH '/seller/kbe',
+					IIK varchar2(34) PATH '/seller/iik',
+					BIK varchar2(50) PATH '/seller/bik',
+					BANK_NAME varchar2(500) PATH '/seller/bank',
+					reorganizedTin varchar2(500) PATH '/seller/reorganizedTin',
+					SHARE_PARTICIPATION varchar2(10) PATH '/seller/shareParticipation') xt
+					where ebt.rowid = p_rowid;
+
+
+		update ods.invoice_participant#0 p set (DELIVERY_DOCNUM,DELIVERY_DOCDATE) =
+			(select xt.DELIVERY_DOCNUM,			  
+			  to_date(xt.DELIVERY_DOCDATE,'dd.mm.yyyy') DELIVERY_DOCDATE
+			 FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+				  DELIVERY_DOCNUM varchar2(100) PATH '/v2:invoice/deliveryDocNum',
+				  DELIVERY_DOCDATE varchar2(20) PATH '/v2:invoice/deliveryDocDate'
+          ) xt
+					where ebt.rowid = p_rowid)
+		where p.invoice_date = P_INVOICE_DATE and p.invoice_id = P_INVOICE_ID;
+
+		-- seller status
+		insert into ods.invoice_participant_status#0(INVOICE_PARTICIPANT_STATUS_ID,INVOICE_PARTICIPANT_ID,STATUS)
+			select
+			  ODS.SEQ_ESF_NEW_PART_ST.NEXTVAL INVOICE_PARTICIPANT_STATUS_ID,
+				participant_id,
+			  STATUS
+			from
+			(select
+				rownum rnum,
+				xt.STATUS
+			from cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/sellers/seller/statuses/status'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					status varchar2(50) PATH '/status') xt
+					where ebt.rowid = p_rowid) t
+			  join (select row_number() over(ORDER BY participant_id) rnum, participant_id from ods.invoice_participant#0 where invoice_date = P_INVOICE_DATE and invoice_id = P_INVOICE_ID and type_id =2) p
+			  on t.rnum = p.rnum;
+
+		-- Agent
+		insert into ods.invoice_participant_agent#0(TIN,
+			NAME_,
+			ADDRESS,
+			DOCNUM,
+			DOCDATE,
+			TYPE_ID)
+			SELECT 
+				xt.TIN,
+				xt.NAME_,
+				xt.ADDRESS,
+				xt.DOCNUM,
+				xt.DOCDATE,
+				1 TYPE_ID
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					TIN varchar2(100) PATH '/v2:invoice/customerAgentTin',
+					NAME_ varchar2(20) PATH '/v2:invoice/customerAgentName',
+					ADDRESS varchar2(500) PATH '/v2:invoice/customerAgentAddress',
+					DOCNUM varchar2(20) PATH '/v2:invoice/customerAgentDocNum',
+					DOCDATE varchar2(20) PATH '/v2:invoice/customerAgentDocDate')        
+				  xt
+				  where ebt.rowid = p_rowid
+				  and xt.TIN is not null;
+
+		insert into ods.invoice_participant_agent#0(TIN,
+			NAME_,
+			ADDRESS,
+			DOCNUM,
+			DOCDATE,
+			TYPE_ID)
+			SELECT 
+				xt.TIN,
+				xt.NAME_,
+				xt.ADDRESS,
+				xt.DOCNUM,
+				xt.DOCDATE,
+				2 TYPE_ID
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					TIN varchar2(100) PATH '/v2:invoice/sellerAgentTin',
+					NAME_ varchar2(20) PATH '/v2:invoice/sellerAgentName',
+					ADDRESS varchar2(500) PATH '/v2:invoice/sellerAgentAddress',
+					DOCNUM varchar2(20) PATH '/v2:invoice/sellerAgentDocNum',
+					DOCDATE varchar2(20) PATH '/v2:invoice/sellerAgentDocDate')        
+				  xt
+				  where ebt.rowid = p_rowid
+				  and xt.TIN is not null;
+
+	end SYNC_PARTICIPANT;
+
+	procedure SYNC_PRODUCT(p_rowid in varchar2, p_invoice_id in number) is
+	begin
+		insert into ods.invoice_product#0(PRODUCT_ID,
+			PRODUCT_NUMBER,
+			INVOICE_ID,
+			DESCRIPTION,
+			UNIT_CODE,
+			UNIT_NOMENCLATURE,
+			PRODUCT_NUMBER_INDECL,
+			QUANTITY,
+			UNIT_PRICE,
+			PRICE_WITHOUT_TAX,
+			EXCISE_RATE,
+			EXCISE_AMOUNT,
+			TURNOVER_SIZE,
+			NDS_RATE,
+			NDS_AMOUNT,
+			PRICE_WITH_TAX,
+			APPNUM_UNION,
+			ADDINFO,
+			TNVED_NAME,
+			CATALOG_TRUID,
+			truOriginCode)
+			select 
+			  ODS.SEQ_ESF_NEW_PROD.NEXTVAL PRODUCT_ID,
+			  rownum product_number,
+			  ebt.invoice_id,
+			  xt.DESCRIPTION,
+			  xt.UNIT_CODE,
+			  xt.UNIT_NOMENCLATURE,
+			  xt.PRODUCT_NUMBER_INDECL,
+			  to_number(xt.QUANTITY) QUANTITY,
+			  to_number(xt.UNIT_PRICE) UNIT_PRICE,
+			  to_number(xt.PRICE_WITHOUT_TAX) PRICE_WITHOUT_TAX,
+			  to_number(xt.EXCISE_RATE) EXCISE_RATE,
+			  to_number(xt.EXCISE_AMOUNT) EXCISE_AMOUNT,
+			  to_number(xt.TURNOVER_SIZE) TURNOVER_SIZE,
+			  is_number(xt.NDS_RATE) NDS_RATE,
+			  to_number(xt.NDS_AMOUNT) NDS_AMOUNT,
+			  to_number(xt.PRICE_WITH_TAX) PRICE_WITH_TAX,
+			  xt.APPNUM_UNION,
+			  xt.ADDINFO,
+			  xt.TNVED_NAME,
+			  xt.CATALOG_TRUID,
+			  xt.truOriginCode
+			FROM cds.esf_buffer_temp ebt,
+			   XMLTABLE(xmlnamespaces('v2.esf' as "v2"),'/v2:invoice/productSet/products/product'
+				  PASSING ebt.invoice_body_xml
+				  COLUMNS
+					DESCRIPTION varchar2(4000) PATH '/product/description',
+					UNIT_CODE varchar2(50) PATH '/product/unitCode',
+					UNIT_NOMENCLATURE varchar2(50) PATH '/product/unitNomenclature',
+					PRODUCT_NUMBER_INDECL varchar2(100) PATH '/product/productNumberInDeclaration',
+					QUANTITY varchar2(50) PATH '/product/quantity',
+					UNIT_PRICE  varchar2(50) PATH '/product/unitPrice',
+					PRICE_WITHOUT_TAX varchar2(50) PATH '/product/priceWithoutTax',
+					EXCISE_RATE varchar2(50) PATH '/product/exciseRate',
+					EXCISE_AMOUNT varchar2(50) PATH '/product/exciseAmount',
+					TURNOVER_SIZE varchar2(50) PATH '/product/turnoverSize',
+					NDS_RATE varchar2(50) PATH '/product/ndsRate',
+					NDS_AMOUNT varchar2(50) PATH '/product/ndsAmount',
+					PRICE_WITH_TAX varchar2(50) PATH '/product/priceWithTax',
+					APPNUM_UNION varchar2(100) PATH '/product/productDeclaration',
+					ADDINFO varchar2(50) PATH '/product/additional',
+					TNVED_NAME varchar2(4000) PATH '/product/tnvedName',
+					CATALOG_TRUID varchar2(100) PATH '/product/catalogTruId',
+					truOriginCode varchar2(100) PATH '/product/truOriginCode') xt
+					where ebt.rowid = p_rowid;
+	end;
+
+  procedure SYNC_SHARE(p_rowid in varchar2, p_invoice_id in number) is 
+  begin
+    insert into ods.invoice_product_share#0(PRODUCT_SHARE_ID,INVOICE_ID,PARTICIPANT_ID,PARTICIPANT_IIN_BIN,PRODUCT_NUMBER,PRODUCT_QUANTITY,
+											NDS_AMOUNT, PRICE_WITH_TAX, PRICE_WITHOUT_TAX, TURNOVER_SIZE)
+		select
+		  SEQ_ESF_NEW_SHARE.NEXTVAL PRODUCT_SHARE_ID,
+		  INVOICE_ID,
+		  (select PARTICIPANT_ID from ods.invoice_participant#0 where invoice_id = P_INVOICE_ID and IIN_BIN = t.PARTICIPANT_IIN_BIN) PARTICIPANT_ID,
+		  PARTICIPANT_IIN_BIN,
+		  PRODUCT_NUMBER,
+		  PRODUCT_QUANTITY,
+		  to_number(NDS_AMOUNT) NDS_AMOUNT, 
+		  to_number(PRICE_WITH_TAX) PRICE_WITH_TAX, 
+		  to_number(PRICE_WITHOUT_TAX) PRICE_WITHOUT_TAX, 
+		  to_number(TURNOVER_SIZE) TURNOVER_SIZE
+		from
+		(with nap as (
+		select invoice_id, invoice_body_xml from cds.esf_buffer_temp where rowid = p_rowid
+		)
+		select 
+			n.invoice_id,
+			extractValue(value(dtl),'participant/tin/text()') PARTICIPANT_IIN_BIN,
+			extractValue(value(dtl2),'share/productNumber/text()') PRODUCT_NUMBER,
+			extractValue(value(dtl2),'share/quantity/text()') PRODUCT_QUANTITY,
+			extractValue(value(dtl2),'share/ndsAmount/text()') NDS_AMOUNT,
+			extractValue(value(dtl2),'share/priceWithTax/text()') PRICE_WITH_TAX,
+			extractValue(value(dtl2),'share/priceWithoutTax/text()') PRICE_WITHOUT_TAX,
+			extractValue(value(dtl2),'share/turnoverSize/text()') TURNOVER_SIZE
+		from nap n
+		,table(XMLSequence(n.invoice_body_xml.extract('/v2:invoice/customerParticipants/participant','xmlns:v2="v2.esf"'))) dtl
+		,table(XMLSequence(value(dtl).extract('participant/productShares/share','xmlns:v2="v2.esf"')))(+) dtl2) t
+		where PRODUCT_NUMBER is not null;
+
+	insert into ods.invoice_product_share#0(PRODUCT_SHARE_ID,INVOICE_ID,PARTICIPANT_ID,PARTICIPANT_IIN_BIN,PRODUCT_NUMBER,PRODUCT_QUANTITY,
+											NDS_AMOUNT, PRICE_WITH_TAX, PRICE_WITHOUT_TAX, TURNOVER_SIZE)
+		select
+		  SEQ_ESF_NEW_SHARE.NEXTVAL PRODUCT_SHARE_ID,
+		  INVOICE_ID,
+		  (select PARTICIPANT_ID from ods.invoice_participant#0 where invoice_id = P_INVOICE_ID and IIN_BIN = t.PARTICIPANT_IIN_BIN) PARTICIPANT_ID,
+		  PARTICIPANT_IIN_BIN,
+		  PRODUCT_NUMBER,
+		  PRODUCT_QUANTITY,
+		  to_number(NDS_AMOUNT) NDS_AMOUNT, 
+		  to_number(PRICE_WITH_TAX) PRICE_WITH_TAX, 
+		  to_number(PRICE_WITHOUT_TAX) PRICE_WITHOUT_TAX, 
+		  to_number(TURNOVER_SIZE) TURNOVER_SIZE
+		from
+		(with nap as (
+		select invoice_id, invoice_body_xml from cds.esf_buffer_temp where rowid = p_rowid
+		)
+		select 
+			n.invoice_id,
+			extractValue(value(dtl),'participant/tin/text()') PARTICIPANT_IIN_BIN,
+			extractValue(value(dtl2),'share/productNumber/text()') PRODUCT_NUMBER,
+			extractValue(value(dtl2),'share/quantity/text()') PRODUCT_QUANTITY,
+			extractValue(value(dtl2),'share/ndsAmount/text()') NDS_AMOUNT,
+			extractValue(value(dtl2),'share/priceWithTax/text()') PRICE_WITH_TAX,
+			extractValue(value(dtl2),'share/priceWithoutTax/text()') PRICE_WITHOUT_TAX,
+			extractValue(value(dtl2),'share/turnoverSize/text()') TURNOVER_SIZE
+		from nap n
+		,table(XMLSequence(n.invoice_body_xml.extract('/v2:invoice/sellerParticipants/participant','xmlns:v2="v2.esf"'))) dtl
+		,table(XMLSequence(value(dtl).extract('participant/productShares/share','xmlns:v2="v2.esf"')))(+) dtl2) t
+		where PRODUCT_NUMBER is not null;
+
+  end SYNC_SHARE;
+
+	procedure SYNC_TARGET is
+	  v_err varchar2(1000 char);
+	  participantCount number;
+	  isOldVersionRunning number(1);
+	  v_invoicedate date;
+	begin
+
+	execute immediate 'ALTER SESSION SET NLS_NUMERIC_CHARACTERS = ''. ''';
+    execute immediate 'ALTER session disable parallel query';
+
+	for cur in (select rowid as rwid, invoice_id from cds.esf_buffer_temp where rownum <= 30000) loop
+	begin
+		SYNC_INVOICE(cur.rwid, cur.invoice_id, v_invoicedate);
+		SYNC_PARTICIPANT(cur.rwid, cur.invoice_id, v_invoicedate);
+		SYNC_PRODUCT(cur.rwid, cur.invoice_id);
+
+        select count(*) into participantCount from ods.invoice_participant#0 where invoice_date= v_invoicedate and invoice_id = cur.invoice_id;
+
+        if (participantCount > 2) then
+          SYNC_SHARE(cur.rwid, cur.invoice_id); --modified by Mag at 14/11/2024  SYNC_SHARE(cur.invoice_id, cur.invoice_id);
+        end if;
+		delete from cds.esf_buffer_temp where rowid = cur.rwid;
+
+		update OWBREP.entity_relevance set relevance_date = sysdate where entity_id in (116, 102);
+		commit;
+	exception when others then
+		rollback;
+		V_ERR := substr(sqlerrm,1,900);
+		insert into cds.esf_buffer_logs(errm, invoice_id, createdon)
+		select
+		 'SYNC: '||V_ERR,
+		 cur.INVOICE_ID,
+		 systimestamp
+		from dual;
+
+		insert into cds.esf_buffer_sync_err
+		select * from cds.esf_buffer_temp where rowid = cur.rwid;
+		delete from cds.esf_buffer_temp where rowid = cur.rwid;
+
+		commit;
+	end;
+	end loop;
+end SYNC_TARGET;
+
+end SYNC_INVOICE_NEW;

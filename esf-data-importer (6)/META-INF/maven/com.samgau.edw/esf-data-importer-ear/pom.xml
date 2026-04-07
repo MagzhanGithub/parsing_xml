@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.samgau.edw</groupId>
+        <artifactId>esf-data-importer</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>esf-data-importer-ear</artifactId>
+    <packaging>ear</packaging>
+
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <edw.esfDataImporter.displayName>esf-data-importer</edw.esfDataImporter.displayName>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-ear-plugin</artifactId>
+                <configuration>
+                    <version>6</version>
+                    <defaultLibBundleDir>lib</defaultLibBundleDir>
+                    <finalName>${edw.esfDataImporter.displayName}</finalName>
+                    <applicationName>${edw.esfDataImporter.displayName}</applicationName>
+                    <displayName>${edw.esfDataImporter.displayName}</displayName>
+                    <modules>
+                        <ejbModule>
+                            <groupId>com.samgau.edw</groupId>
+                            <artifactId>esf-data-importer-ejb</artifactId>
+                            <bundleFileName>esf-data-importer-ejb.jar</bundleFileName>
+                        </ejbModule>
+                    </modules>
+                    <archive>
+                        <manifestEntries>
+                            <Weblogic-Application-Version>
+                                ${edw.esfDataImporter.appVersion}</Weblogic-Application-Version>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.samgau.edw</groupId>
+            <artifactId>esf-data-importer-ejb</artifactId>
+            <version>1.0.0</version>
+            <type>ejb</type>
+        </dependency>
+    </dependencies>
+
+</project>
